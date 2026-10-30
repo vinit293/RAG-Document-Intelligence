@@ -364,7 +364,10 @@ if ask_button:
                 if st.button("Run Real-Time Evaluation", key=f"eval_btn_{abs(hash(question))}"):
                     try:
                         from groq import Groq
-                        groq_client_eval = Groq(api_key=os.getenv("GROQ_API_KEY"))
+                        key_val = os.getenv("GROQ_API_KEY")
+                        if not key_val and hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+                            key_val = st.secrets["GROQ_API_KEY"]
+                        groq_client_eval = Groq(api_key=key_val)
 
                         with st.spinner("LLM Judge is assessing Context Precision, Faithfulness & Relevancy..."):
                             eval_res = evaluate_live_query(

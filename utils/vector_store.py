@@ -66,12 +66,23 @@ def init_vector_client(
     if storage_mode == "Local Embedded (Offline)":
         return _create_local_client(local_path)
 
-    url = os.getenv("QDRANT_URL")
-    api_key = os.getenv("QDRANT_API_KEY")
+    def _get_val(k: str) -> Optional[str]:
+        v = os.getenv(k)
+        if not v:
+            try:
+                import streamlit as st
+                if hasattr(st, "secrets") and k in st.secrets:
+                    v = st.secrets[k]
+            except Exception:
+                pass
+        return v
+
+    url = _get_val("QDRANT_URL")
+    api_key = _get_val("QDRANT_API_KEY")
 
     if storage_mode == "Cloud Qdrant":
         if not url or not api_key:
-            raise ValueError("QDRANT_URL or QDRANT_API_KEY is missing in .env.")
+            raise ValueError("QDRANT_URL or QDRANT_API_KEY is missing in environment or Streamlit Secrets.")
         client = QdrantClient(url=url, api_key=api_key, timeout=10)
         client.get_collections()
         return client, "Cloud Qdrant"

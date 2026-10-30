@@ -66,7 +66,15 @@ def generate_grounded_answer(
     """
     api_key = groq_api_key or os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise ValueError("GROQ_API_KEY missing in environment. Please configure your Groq key.")
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+                api_key = st.secrets["GROQ_API_KEY"]
+        except Exception:
+            pass
+
+    if not api_key:
+        raise ValueError("GROQ_API_KEY missing in environment. Please configure your Groq key in Streamlit Secrets.")
 
     if not results:
         return {
