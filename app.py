@@ -138,15 +138,15 @@ with st.sidebar:
 # ------------------------------------------------------------
 st.subheader("1. Ingest Documents")
 uploaded_files = st.file_uploader(
-    "Choose PDF files (supports text-based, scanned, and mixed PDFs)",
-    type=["pdf"],
+    "Choose PDF or Image files (supports text PDFs, scanned PDFs, PNG, JPG, JPEG)",
+    type=["pdf", "png", "jpg", "jpeg", "webp"],
     accept_multiple_files=True,
 )
 
 if uploaded_files:
-    st.info(f"{len(uploaded_files)} PDF file(s) selected for processing.")
+    st.info(f"{len(uploaded_files)} file(s) selected for processing.")
 
-    if st.button("Add PDFs to Knowledge Base", type="primary"):
+    if st.button("Add Files to Knowledge Base", type="primary"):
         if not client or not model:
             st.error("Cannot proceed: Qdrant client or embedding model is unavailable. Check sidebar.")
         else:

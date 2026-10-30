@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Tuple
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 
-from utils.ocr_processor import perform_ocr_on_page
+from utils.ocr_processor import perform_ocr_on_page, perform_ocr_on_image_bytes
 
 
 def extract_pages_with_fallback(
@@ -20,9 +20,9 @@ def extract_pages_with_fallback(
     ocr_threshold_chars: int = 30,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Extracts text page-by-page from PDF bytes.
-    - Uses pypdf for selectable text.
-    - If a page has < ocr_threshold_chars, triggers PyMuPDF + Tesseract OCR fallback.
+    Extracts text from PDF or Image bytes:
+    - If image (PNG, JPG, JPEG): performs direct Tesseract OCR.
+    - If PDF: uses pypdf for selectable text with PyMuPDF + Tesseract OCR fallback for scanned pages.
     
     Returns:
         (pages_list, summary_stats)
@@ -30,6 +30,29 @@ def extract_pages_with_fallback(
     if not pdf_bytes:
         raise ValueError(f"Uploaded file '{filename}' is empty.")
 
+    # Direct Image File Handling (PNG, JPG, JPEG, etc.)
+    image_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff")
+    if filename.lower().endswith(image_exts):
+        ocr_text, warn = perform_ocr_on_image_bytes(pdf_bytes)
+        stats = {
+            "filename": filename,
+            "total_pages": 1,
+            "pypdf_pages": 0,
+            "ocr_pages": 1 if ocr_text else 0,
+            "empty_pages": 0 if ocr_text else 1,
+            "warnings": [warn] if warn else [],
+        }
+        if not ocr_text.strip():
+            return [], stats
+
+        return [{
+            "page": 1,
+            "text": ocr_text,
+            "extraction_method": "OCR",
+            "source": filename,
+        }], stats
+
+    # PDF File Handling
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
     except Exception as exc:

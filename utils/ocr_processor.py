@@ -13,19 +13,37 @@ from PIL import Image
 import pytesseract
 
 
+import shutil
+
+
 def configure_tesseract() -> Optional[str]:
-    """Auto-detect Tesseract OCR executable in standard Windows & custom paths."""
+    """Auto-detect Tesseract OCR executable on Windows, Linux (Streamlit Cloud), and system PATH."""
+    # 1. Check system PATH first (standard on Linux / Streamlit Cloud)
+    in_path = shutil.which("tesseract")
+    if in_path:
+        pytesseract.pytesseract.tesseract_cmd = in_path
+        return in_path
+
+    # 2. Check standard Linux paths
+    linux_candidates = ["/usr/bin/tesseract", "/usr/local/bin/tesseract", "/usr/bin/tesseract-ocr"]
+    for path in linux_candidates:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return path
+
+    # 3. Check custom env var and Windows paths
     custom_path = os.getenv("TESSERACT_PATH")
-    candidates = [
+    windows_candidates = [
         custom_path,
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
         os.path.expanduser(r"~\AppData\Local\Tesseract-OCR\tesseract.exe"),
     ]
-    for path in candidates:
+    for path in windows_candidates:
         if path and os.path.exists(path):
             pytesseract.pytesseract.tesseract_cmd = path
             return path
+
     return None
 
 
@@ -35,6 +53,22 @@ TESSERACT_PATH = configure_tesseract()
 def is_ocr_available() -> bool:
     """Checks if Tesseract OCR is configured and usable."""
     return TESSERACT_PATH is not None and os.path.exists(TESSERACT_PATH)
+
+
+def perform_ocr_on_image_bytes(
+    image_bytes: bytes,
+    language: str = "eng",
+) -> Tuple[str, Optional[str]]:
+    """Performs Tesseract OCR directly on raw image bytes (PNG, JPG, JPEG)."""
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        ocr_text = pytesseract.image_to_string(image, lang=language)
+        cleaned = " ".join(ocr_text.split())
+        return cleaned, None
+    except pytesseract.TesseractNotFoundError:
+        return "", "Tesseract OCR engine not found. Please install Tesseract."
+    except Exception as exc:
+        return "", f"Image OCR failed: {exc}"
 
 
 def perform_ocr_on_page(

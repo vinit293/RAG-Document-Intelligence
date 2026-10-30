@@ -10,7 +10,12 @@ Modular architecture components:
 - retrieval: Semantic search & grounded generation with citations
 """
 
-from utils.ocr_processor import configure_tesseract, is_ocr_available, perform_ocr_on_page
+from utils.ocr_processor import (
+    configure_tesseract,
+    is_ocr_available,
+    perform_ocr_on_page,
+    perform_ocr_on_image_bytes,
+)
 from utils.pdf_extractor import extract_pages_with_fallback
 from utils.chunking import create_chunks
 from utils.embeddings import load_embedding_model, generate_embeddings, embed_query
