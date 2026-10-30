@@ -260,6 +260,12 @@ with col_query:
     )
     ask_button = st.button("Search & Answer", type="primary", disabled=not available_files)
 
+# Initialize session state for persistent answer & evaluation
+if "query_result" not in st.session_state:
+    st.session_state["query_result"] = None
+if "eval_result" not in st.session_state:
+    st.session_state["eval_result"] = None
+
 if ask_button:
     if not question.strip():
         st.warning("Please enter a question.")
@@ -279,128 +285,151 @@ if ask_button:
 
                 output = generate_grounded_answer(question, results)
 
-            # Display Answer
-            st.markdown("### Answer")
-            st.write(output["answer"])
-
-            # Citations Display & Validation
-            st.markdown("### Cited Sources")
-            citations = output.get("citations", [])
-            valid_cited_ids = output.get("valid_cited_ids", set())
-            invalid_cited_ids = output.get("invalid_cited_ids", set())
-
-            if citations:
-                displayed_keys = set()
-                found_valid_citations = False
-
-                for src in citations:
-                    if src["id"] in valid_cited_ids:
-                        found_valid_citations = True
-                        key = (src["source"], src["page"])
-                        if key not in displayed_keys:
-                            displayed_keys.add(key)
-                            badge = "badge-ocr" if src["extraction_method"] == "OCR" else "badge-pypdf"
-                            st.markdown(
-                                f"- **[{src['id']}]** `{src['source']}` — Page {src['page']} "
-                                f"<span class='{badge}'>{src['extraction_method']}</span> "
-                                f"(Similarity: {src['score']:.3f})",
-                                unsafe_allow_html=True,
-                            )
-
-                if not found_valid_citations:
-                    ans_lower = output["answer"].lower()
-                    if (
-                        "not found" in ans_lower
-                        or "relevant information nahi mili" in ans_lower
-                        or "information was not found" in ans_lower
-                    ):
-                        st.info("The requested information was not found in the selected documents.")
-                    else:
-                        st.info("No specific source IDs were cited in the answer.")
-
-                # Flag hallucinated citation IDs
-                if invalid_cited_ids:
-                    st.warning(
-                        f"Citation Validation Alert: The model cited ID(s) {sorted(list(invalid_cited_ids))} "
-                        "which were not in the retrieved passages."
-                    )
-            else:
-                st.info("No supporting sources were retrieved for this query.")
-
-            # Retrieved Chunks Inspection Expander
-            st.markdown("### Retrieved Chunks Inspection")
-            if not results:
-                st.info("No matching chunks met the search criteria.")
-            else:
-                for idx, res in enumerate(results, start=1):
-                    p = res.payload or {}
-                    method = p.get("extraction_method", "pypdf")
-                    badge = "badge-ocr" if method == "OCR" else "badge-pypdf"
-
-                    with st.expander(
-                        f"Chunk [S{idx}] — {p.get('source', 'Unknown')} (Page {p.get('page', '?')}) | Score: {res.score:.3f}"
-                    ):
-                        st.markdown(
-                            f"**Method:** <span class='{badge}'>{method}</span> | **Chunk Index:** {p.get('chunk_index', '?')}",
-                            unsafe_allow_html=True,
-                        )
-                        st.text(p.get("text", ""))
-
-            # ------------------------------------------------------------
-            # LIVE 5-METRIC RAG EVALUATION (FOR ANY CUSTOM PDF)
-            # ------------------------------------------------------------
-            st.divider()
-            with st.expander("📊 Live RAG Evaluation (Score This Query on Any PDF)"):
-                st.markdown(
-                    "Evaluate retrieval quality and answer grounding directly for **this specific PDF and query** "
-                    "using the LLM-as-a-judge system."
-                )
-                custom_gt = st.text_input(
-                    "Optional Ground Truth Answer (Provide to score Context Recall & Answer Correctness):",
-                    placeholder="e.g. The exact policy or fact from the document",
-                    key=f"gt_{abs(hash(question))}",
-                )
-
-                if st.button("Run Real-Time Evaluation", key=f"eval_btn_{abs(hash(question))}"):
-                    try:
-                        from groq import Groq
-                        key_val = os.getenv("GROQ_API_KEY")
-                        if not key_val and hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
-                            key_val = st.secrets["GROQ_API_KEY"]
-                        groq_client_eval = Groq(api_key=key_val)
-
-                        with st.spinner("LLM Judge is assessing Context Precision, Faithfulness & Relevancy..."):
-                            eval_res = evaluate_live_query(
-                                groq_client=groq_client_eval,
-                                question=question,
-                                retrieved_chunks=results,
-                                answer=output["answer"],
-                                ground_truth=custom_gt.strip() if custom_gt else None,
-                            )
-
-                        st.markdown("#### Evaluation Results")
-                        c1, c2, c3 = st.columns(3)
-                        with c1:
-                            st.metric("Context Precision", f"{eval_res['context_precision']:.2f}")
-                            st.caption("Proportion of retrieved chunks relevant to query.")
-                        with c2:
-                            st.metric("Faithfulness", f"{eval_res['faithfulness']:.2f}")
-                            st.caption(eval_res.get("faithfulness_reason", "Answer supported by context."))
-                        with c3:
-                            st.metric("Answer Relevancy", f"{eval_res['answer_relevancy']:.2f}")
-                            st.caption(eval_res.get("relevancy_reason", "Directness of response."))
-
-                        if "context_recall" in eval_res and "answer_correctness" in eval_res:
-                            c4, c5 = st.columns(2)
-                            with c4:
-                                st.metric("Context Recall", f"{eval_res['context_recall']:.2f}")
-                                st.caption(eval_res.get("recall_reason", "Information coverage."))
-                            with c5:
-                                st.metric("Answer Correctness", f"{eval_res['answer_correctness']:.2f}")
-                                st.caption(eval_res.get("correctness_reason", "Ground truth accuracy."))
-
-                    except Exception as eval_err:
-                        st.error(f"Evaluation failed: {eval_err}")
+            # Store in session state so typing in evaluation input doesn't reset screen
+            st.session_state["query_result"] = {
+                "question": question,
+                "results": results,
+                "output": output,
+            }
+            st.session_state["eval_result"] = None
 
         except Exception as error:
             st.error(f"Question answering failed: {error}")
+
+# Persistent Rendering from Session State
+if st.session_state["query_result"]:
+    q_data = st.session_state["query_result"]
+    cur_question = q_data["question"]
+    results = q_data["results"]
+    output = q_data["output"]
+
+    # Display Answer
+    st.markdown("### Answer")
+    st.write(output["answer"])
+
+    # Citations Display & Validation
+    st.markdown("### Cited Sources")
+    citations = output.get("citations", [])
+    valid_cited_ids = output.get("valid_cited_ids", set())
+    invalid_cited_ids = output.get("invalid_cited_ids", set())
+
+    if citations:
+        displayed_keys = set()
+        found_valid_citations = False
+
+        for src in citations:
+            if src["id"] in valid_cited_ids:
+                found_valid_citations = True
+                key = (src["source"], src["page"])
+                if key not in displayed_keys:
+                    displayed_keys.add(key)
+                    badge = "badge-ocr" if src["extraction_method"] == "OCR" else "badge-pypdf"
+                    st.markdown(
+                        f"- **[{src['id']}]** `{src['source']}` — Page {src['page']} "
+                        f"<span class='{badge}'>{src['extraction_method']}</span> "
+                        f"(Similarity: {src['score']:.3f})",
+                        unsafe_allow_html=True,
+                    )
+
+        if not found_valid_citations:
+            ans_lower = output["answer"].lower()
+            if (
+                "not found" in ans_lower
+                or "relevant information nahi mili" in ans_lower
+                or "information was not found" in ans_lower
+            ):
+                st.info("The requested information was not found in the selected documents.")
+            else:
+                st.info("No specific source IDs were cited in the answer.")
+
+        # Flag hallucinated citation IDs
+        if invalid_cited_ids:
+            st.warning(
+                f"Citation Validation Alert: The model cited ID(s) {sorted(list(invalid_cited_ids))} "
+                "which were not in the retrieved passages."
+            )
+    else:
+        st.info("No supporting sources were retrieved for this query.")
+
+    # Retrieved Chunks Inspection Expander
+    st.markdown("### Retrieved Chunks Inspection")
+    if not results:
+        st.info("No matching chunks met the search criteria.")
+    else:
+        for idx, res in enumerate(results, start=1):
+            p = res.payload or {}
+            method = p.get("extraction_method", "pypdf")
+            badge = "badge-ocr" if method == "OCR" else "badge-pypdf"
+
+            with st.expander(
+                f"Chunk [S{idx}] — {p.get('source', 'Unknown')} (Page {p.get('page', '?')}) | Score: {res.score:.3f}"
+            ):
+                st.markdown(
+                    f"**Method:** <span class='{badge}'>{method}</span> | **Chunk Index:** {p.get('chunk_index', '?')}",
+                    unsafe_allow_html=True,
+                )
+                st.text(p.get("text", ""))
+
+    # ------------------------------------------------------------
+    # LIVE 5-METRIC RAG EVALUATION (FOR ANY CUSTOM PDF)
+    # ------------------------------------------------------------
+    st.divider()
+    with st.expander("📊 Live RAG Evaluation (Score This Query on Any PDF)", expanded=True):
+        st.markdown(
+            "Evaluate retrieval quality and answer grounding directly for **this specific PDF and query** "
+            "using the LLM-as-a-judge system."
+        )
+        custom_gt = st.text_input(
+            "Optional Ground Truth Answer (Provide to score Context Recall & Answer Correctness):",
+            placeholder="e.g. The internship was a work-from-home role...",
+            key="custom_gt_input",
+        )
+
+        col_btn, _ = st.columns([1, 3])
+        with col_btn:
+            eval_clicked = st.button("Run Real-Time Evaluation", type="primary", key="eval_run_btn")
+
+        if eval_clicked:
+            try:
+                from groq import Groq
+                key_val = os.getenv("GROQ_API_KEY")
+                if not key_val and hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+                    key_val = st.secrets["GROQ_API_KEY"]
+                groq_client_eval = Groq(api_key=key_val)
+
+                with st.spinner("LLM Judge is scoring Context Precision, Faithfulness & Relevancy..."):
+                    eval_res = evaluate_live_query(
+                        groq_client=groq_client_eval,
+                        question=cur_question,
+                        retrieved_chunks=results,
+                        answer=output["answer"],
+                        ground_truth=custom_gt.strip() if custom_gt else None,
+                    )
+                st.session_state["eval_result"] = eval_res
+
+            except Exception as eval_err:
+                st.error(f"Evaluation failed: {eval_err}")
+
+        # Render Evaluation Results persistently
+        if st.session_state["eval_result"]:
+            eval_res = st.session_state["eval_result"]
+            st.markdown("#### Evaluation Results")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Context Precision", f"{eval_res['context_precision']:.2f}")
+                st.caption("Proportion of retrieved chunks relevant to query.")
+            with c2:
+                st.metric("Faithfulness", f"{eval_res['faithfulness']:.2f}")
+                st.caption(eval_res.get("faithfulness_reason", "Answer supported by context."))
+            with c3:
+                st.metric("Answer Relevancy", f"{eval_res['answer_relevancy']:.2f}")
+                st.caption(eval_res.get("relevancy_reason", "Directness of response."))
+
+            if "context_recall" in eval_res and "answer_correctness" in eval_res:
+                c4, c5 = st.columns(2)
+                with c4:
+                    st.metric("Context Recall", f"{eval_res['context_recall']:.2f}")
+                    st.caption(eval_res.get("recall_reason", "Information coverage."))
+                with c5:
+                    st.metric("Answer Correctness", f"{eval_res['answer_correctness']:.2f}")
+                    st.caption(eval_res.get("correctness_reason", "Ground truth accuracy."))
