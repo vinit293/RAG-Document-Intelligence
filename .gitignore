@@ -1,0 +1,23 @@
+# Environment secrets
+.env
+*.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+
+# Qdrant local storage and lock files
+qdrant_storage/
+qdrant_db/
+test_local_idx/
+*.lock
+
+# Evaluation outputs and test files
+eval_results.json
+test_*.pdf
+*.log
